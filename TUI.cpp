@@ -15,9 +15,17 @@
 #define GREEN 3
 #define CYAN 4
 #define WHITE 6
+#define MAGENTA 5
+#define PEACH 8
 
-bool running = true;
-bool paused = true;
+bool done = false;
+bool paused = false;
+
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+
+
 
 void print_centered(int row, const char* format, ...) {
     char buffer[256];
@@ -49,13 +57,18 @@ void* interface(void*){
     init_pair(GREEN, COLOR_GREEN, -1);
     init_pair(CYAN, COLOR_CYAN, -1);
     init_pair(WHITE, COLOR_WHITE, -1);
+    init_pair(MAGENTA, COLOR_MAGENTA, -1);
+    init_pair(PEACH, 217, -1);
 
 
     // draw interface
-    while(running) {
-        pthread_mutex_lock(&interface_lock);
+    while(true) {
+        pthread_mutex_lock(&mutex);
+        bool local_done = done;
         bool is_paused = paused;
-        pthread_mutex_unlock(&interface_lock);
+        pthread_mutex_unlock(&mutex);
+
+        if (local_done) break;
 
         clear();
         print_centered(0, "Multithreaded Restaurant Simulation");
@@ -120,13 +133,18 @@ void* interface(void*){
 
 
         int key = getch();
-        if(key == 'q' || key == 'Q')
-            running = false;
-        else if(key == ' '){
-            pthread_mutex_lock(&interface_lock);
+        if(key == 'q' || key == 'Q') {
+            pthread_mutex_lock(&mutex);
+            done = true;
+            pthread_cond_broadcast(&cond);
+            pthread_mutex_unlock(&mutex);
+        } else if(key == ' ') {
+            pthread_mutex_lock(&mutex);
             paused = !paused;
-            pthread_mutex_unlock(&interface_lock);
+            pthread_cond_broadcast(&cond);
+            pthread_mutex_unlock(&mutex);
         }
+
 
         // sleep for 0.01 seconds
         usleep(10000);
@@ -143,6 +161,7 @@ const char* to_string(ClientState state){
         case ClientState::HUNGRY:   return "HUNGRY";
         case ClientState::EATING:   return "EATING";
         case ClientState::WAITING:  return "WAITING";
+        case ClientState::WAIT_MENU:  return "WAIT_MENU";
         case ClientState::STARVING:     return "STARVING";
         default:                   return "UNKNOWN";
     }
@@ -168,9 +187,10 @@ const char* to_string(ItemState state){
 int client_state_color(ClientState state){
     switch(state) {
         case ClientState::THINKING: return YELLOW;
-        case ClientState::HUNGRY:   return RED;
+        case ClientState::HUNGRY:   return MAGENTA;
         case ClientState::EATING:   return GREEN;
         case ClientState::WAITING:  return CYAN;
+        case ClientState::WAIT_MENU:  return PEACH;
         case ClientState::STARVING: return RED;
         default:                   return WHITE;
     }

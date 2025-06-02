@@ -7,10 +7,10 @@ set(CMAKE_CXX_FLAGS "-lncurses")
 
 add_executable(
                     t
-                    simulation.h
-                    simulation.cpp
-                    main.h
-                    main.cpp
+        simulation.h
+        simulation.cpp
+#                    main.h
+        main.cpp
         TUI.cpp
         TUI.h
 
