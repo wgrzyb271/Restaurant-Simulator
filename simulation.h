@@ -16,7 +16,6 @@
 #define MENU 8
 #define FULL_LIMIT 100
 
-extern pthread_mutex_t interface_lock;
 
 extern bool done;
 extern bool paused;
@@ -30,6 +29,10 @@ enum ClientState{
     WAIT_MENU,
     THINKING,
     HUNGRY,
+    NONE_FORK,
+    LEFT_FORK,
+    RIGHT_FORK,
+    LEFT_RIGHT_FORK,
     EATING,
     FULL,
     STARVING
@@ -103,7 +106,8 @@ typedef struct{
 void* client_job(void* arg);
 void client_think(Client* current_client);
 void client_eat(Client* current_client);
-
+void pick_up_forks(Client* current_client);
+void release_forks(Client* current_client);
 
 
 void* waiter_job(void* arg);
@@ -121,7 +125,7 @@ void terminate_interface();
 
 
 extern int random_between(int a=0, int b=70);
-void give_client_meal(Client* client_served);
+void give_client_meal(Client* client_served, Waiter* current_waiter);
 void give_client_menu(Client* client_served);
 void seat_client(Client* client_served);
 void init();

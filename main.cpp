@@ -8,7 +8,6 @@
 int main() {
 
     pthread_t interface_t;
-    pthread_mutex_init(&interface_lock, nullptr);
     init();
 
     pthread_create(&interface_t, nullptr, interface, nullptr);
@@ -21,7 +20,6 @@ int main() {
 
 
     cleanup();
-    pthread_mutex_destroy(&interface_lock);
 
      return 0;
 }

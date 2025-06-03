@@ -64,9 +64,32 @@ void* interface(void*){
     init_pair(PINK, 205, -1);
 
 
+    print_centered(0, "Multithreaded Restaurant Simulation");
+    refresh();
 
     // draw interface
     while(true) {
+
+
+        int key = getch();
+        pthread_mutex_lock(&mutex);
+        if(key == 'q' || key == 'Q') {
+
+            done = true;
+            pthread_cond_broadcast(&cond);
+            pthread_mutex_unlock(&mutex);
+            break;
+
+        } else if(key == ' ') {
+
+            paused = !paused;
+            if(!paused)
+                pthread_cond_broadcast(&cond);
+
+        }
+
+        pthread_mutex_unlock(&mutex);
+
         pthread_mutex_lock(&mutex);
         bool local_done = done;
         bool is_paused = paused;
@@ -75,7 +98,6 @@ void* interface(void*){
         if (local_done) break;
 
         clear();
-        print_centered(0, "Multithreaded Restaurant Simulation");
 
         int cols = 3;          // number of columns for clients
         int col_width = 30;    // width of each client column
@@ -136,18 +158,7 @@ void* interface(void*){
         refresh();
 
 
-        int key = getch();
-        if(key == 'q' || key == 'Q') {
-            pthread_mutex_lock(&mutex);
-            done = true;
-            pthread_cond_broadcast(&cond);
-            pthread_mutex_unlock(&mutex);
-        } else if(key == ' ') {
-            pthread_mutex_lock(&mutex);
-            paused = !paused;
-            pthread_cond_broadcast(&cond);
-            pthread_mutex_unlock(&mutex);
-        }
+
 
 
         // sleep for 0.01 seconds
@@ -163,6 +174,10 @@ const char* to_string(ClientState state){
     switch(state) {
         case ClientState::THINKING: return "THINKING";
         case ClientState::HUNGRY:   return "HUNGRY";
+        case ClientState::NONE_FORK:   return "..";
+        case ClientState::LEFT_FORK:   return "L.";
+        case ClientState::RIGHT_FORK:   return ".R";
+        case ClientState::LEFT_RIGHT_FORK:   return "LR";
         case ClientState::EATING:   return "EATING";
         case ClientState::FULL:   return "FULL";
         case ClientState::WAITING:  return "WAITING";
