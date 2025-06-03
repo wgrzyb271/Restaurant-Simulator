@@ -14,7 +14,7 @@
 #define KNIFE 8
 #define GLASS 8
 #define MENU 8
-#define FULL 100
+#define FULL_LIMIT 100
 
 extern pthread_mutex_t interface_lock;
 
@@ -31,6 +31,7 @@ enum ClientState{
     THINKING,
     HUNGRY,
     EATING,
+    FULL,
     STARVING
 };
 
@@ -66,6 +67,9 @@ typedef struct Client{
     bool has_menu;
     bool has_food;
 
+    int menu_id;
+
+    pthread_mutex_t points_lock;
     pthread_mutex_t mutex;
 
     pthread_cond_t cond_seated;
@@ -90,14 +94,22 @@ typedef struct{
     KitchenState state;
     std::queue<int> meal_queue; // queue stores client ids
     std::queue<int> ready_queue; // queue stores client ids
-    pthread_mutex_t mutex;
+    pthread_mutex_t mutex_meal;
+    pthread_mutex_t mutex_ready;
 } Kitchen;
 
 
 
 void* client_job(void* arg);
+void client_think(Client* current_client);
+void client_eat(Client* current_client);
+
+
+
 void* waiter_job(void* arg);
 void* kitchen_job(void* arg);
+
+
 
 void begin_simulation();
 void finish_simulation();
@@ -106,7 +118,10 @@ void init_interface();
 void interface();
 void terminate_interface();
 
+
+
 extern int random_between(int a=0, int b=70);
+void give_client_meal(Client* client_served);
 void give_client_menu(Client* client_served);
 void seat_client(Client* client_served);
 void init();

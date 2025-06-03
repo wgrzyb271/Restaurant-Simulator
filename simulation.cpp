@@ -74,25 +74,76 @@ void* client_job(void* arg){
 
                 break;
             case THINKING:
-                pthread_mutex_lock(&current_client->mutex);
-                current_client->state = HUNGRY;
-                pthread_mutex_unlock(&current_client->mutex);
+                client_think(current_client);
 
                 break;
             case HUNGRY:
+                // wait for the order
+                pthread_mutex_lock(&current_client->mutex);
+                while (!current_client->has_food)
+                    pthread_cond_wait(&current_client->cond_food, &current_client->mutex);
+                current_client->state = EATING;
+                pthread_mutex_unlock(&current_client->mutex);
                 break;
             case EATING:
+                client_eat(current_client);
                 break;
+            case FULL:
+                usleep(10000);
             case STARVING:
                 break;
             default:
                 usleep(5000);
                 break;
         }
-        current_client->meals++;
+
         usleep(10000);
     }
     return nullptr;
+}
+
+void client_think(Client* current_client){
+    // choose a meal
+    sleep(random_between(2, 3));
+
+    // release menu
+
+    pthread_mutex_lock(&current_client->mutex);
+    int menu_id = current_client->menu_id;
+    current_client->menu_id = -1;
+    current_client->has_menu = false;
+
+    pthread_mutex_lock(&menu[menu_id].mutex);
+    menu[menu_id].is_occupied = false;
+    pthread_mutex_unlock(&menu[menu_id].mutex);
+
+    // change state
+    current_client->state = HUNGRY;
+    pthread_mutex_unlock(&current_client->mutex);
+
+    // make an order
+    pthread_mutex_lock(&kitchen.mutex_meal);
+    kitchen.meal_queue.push(current_client->id);
+    pthread_mutex_unlock(&kitchen.mutex_meal);
+
+}
+
+void client_eat(Client* current_client){
+    sleep(random_between(3, 4));
+    current_client->meals++;
+
+    pthread_mutex_lock(&current_client->points_lock);
+    current_client->hunger_points += random_between(1,15);
+    pthread_mutex_unlock(&current_client->points_lock);
+
+    if (current_client->hunger_points < FULL_LIMIT)
+        current_client->state = WAIT_MENU;
+    else
+        current_client->state = FULL;
+
+    // TODO points thread to decrement and add even/not even fork pick up
+
+
 }
 
 void* waiter_job(void* arg){
@@ -117,6 +168,9 @@ void* waiter_job(void* arg){
             if (client_served->state == WAIT_MENU && !client_served->has_menu) {
                 give_client_menu(client_served);
             }
+
+//            if(client_served->state == HUNGRY && !client_served->has_food)
+                give_client_meal(client_served);
         }
 
 
@@ -137,11 +191,76 @@ void* kitchen_job(void* arg){
 
         if(done) break;
 
+        switch (kitchen.state) {
+
+            case READY:
+                // check if food is needed
+                pthread_mutex_lock(&kitchen.mutex_meal);
+                if (!kitchen.meal_queue.empty())
+                    kitchen.state = BUSY;
+                pthread_mutex_unlock(&kitchen.mutex_meal);
+                break;
+            case BUSY:
+                // prepare food
+
+                while (true){
+                    pthread_mutex_lock(&kitchen.mutex_meal);
+
+                    if (kitchen.meal_queue.empty()) {
+                        kitchen.state = FINISHED;
+                        pthread_mutex_unlock(&kitchen.mutex_meal);
+                        break;
+                    }
+                    int meal = kitchen.meal_queue.front();
+                    kitchen.meal_queue.pop();
+                    pthread_mutex_unlock(&kitchen.mutex_meal);
+
+                    // simulate preparation time
+//                    sleep(random_between(5, 10));
+                    sleep(random_between(1, 2));
+
+                    // mark as finished
+                    pthread_mutex_lock(&kitchen.mutex_ready);
+                    kitchen.ready_queue.push(meal);
+                    // notify client that his meal is ready
+//                    pthread_cond_signal(&client[meal].cond_food);
+                    pthread_mutex_unlock(&kitchen.mutex_ready);
+                }
+
+                break;
+            case FINISHED:
+                // show state
+                usleep(1000);
+                kitchen.state = READY;
+                break;
+            default:
+                usleep(5000);
+                break;
+
+        }
 
         usleep(10000);
     }
     return nullptr;
 }
+
+void give_client_meal(Client* client_served){
+    // TODO waiter - hand meal round till empty queue
+    pthread_mutex_lock(&kitchen.mutex_ready);
+    if (!kitchen.ready_queue.empty()) {
+        int meal = kitchen.ready_queue.front();
+        kitchen.ready_queue.pop();
+        pthread_mutex_unlock(&kitchen.mutex_ready);
+
+        pthread_mutex_lock(&client[meal].mutex);
+        client[meal].has_food = true;
+        pthread_cond_signal(&client[meal].cond_food);
+        pthread_mutex_unlock(&client[meal].mutex);
+    } else {
+        pthread_mutex_unlock(&kitchen.mutex_ready);
+    }
+}
+
 
 void give_client_menu(Client* client_served){
     for(int m = 0; m < MENU; m++){
@@ -150,6 +269,7 @@ void give_client_menu(Client* client_served){
             pthread_mutex_lock(&client_served->mutex);
             client_served->has_menu = true;
             menu[m].is_occupied = true;
+            client_served->menu_id = m;
             pthread_cond_signal(&client_served->cond_menu);
             pthread_mutex_unlock(&client_served->mutex);
             pthread_mutex_unlock(&menu[m].mutex);
@@ -212,8 +332,10 @@ void init(){
        client[i].has_menu = false;
        client[i].has_food = false;
 
+       client[i].menu_id = -1;
 
        pthread_mutex_init(&client[i].mutex, nullptr);
+       pthread_mutex_init(&client[i].points_lock, nullptr);
        pthread_cond_init(&client[i].cond_seated, nullptr);
        pthread_cond_init(&client[i].cond_menu, nullptr);
        pthread_cond_init(&client[i].cond_food, nullptr);
@@ -243,7 +365,9 @@ void init(){
 
     // init kitchen
     kitchen.state = READY;
-    pthread_mutex_init(&kitchen.mutex, nullptr);
+    pthread_mutex_init(&kitchen.mutex_meal, nullptr);
+    pthread_mutex_init(&kitchen.mutex_ready, nullptr);
+
 
 
 
@@ -277,6 +401,13 @@ void begin_simulation(){
 
 void cleanup(){
 
+    for(int i = 0; i < clients; i++){
+        pthread_mutex_destroy(&client[i].mutex);
+        pthread_mutex_destroy(&client[i].points_lock);
+        pthread_cond_destroy(&client->cond_seated);
+        pthread_cond_destroy(&client->cond_menu);
+        pthread_cond_destroy(&client->cond_food);
+    }
 
 	// destroy structures
 	delete[] client;
@@ -285,10 +416,13 @@ void cleanup(){
 		for(int j=0; j<SEAT; j++)
 			pthread_mutex_destroy(&table[i].lock[j]);
 
+
+
     for (int i = 0; i < WAITER_NO; i++)
         pthread_mutex_destroy(&waiter[i].mutex);
 
-    pthread_mutex_destroy(&kitchen.mutex);
+    pthread_mutex_destroy(&kitchen.mutex_meal);
+    pthread_mutex_destroy(&kitchen.mutex_ready);
 
     delete[] client_t;
     delete[] waiter_t;

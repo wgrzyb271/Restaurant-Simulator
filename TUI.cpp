@@ -17,6 +17,8 @@
 #define WHITE 6
 #define MAGENTA 5
 #define PEACH 8
+#define PINK 10
+
 
 bool done = false;
 bool paused = false;
@@ -59,6 +61,8 @@ void* interface(void*){
     init_pair(WHITE, COLOR_WHITE, -1);
     init_pair(MAGENTA, COLOR_MAGENTA, -1);
     init_pair(PEACH, 217, -1);
+    init_pair(PINK, 205, -1);
+
 
 
     // draw interface
@@ -100,7 +104,7 @@ void* interface(void*){
             mvprintw(y + 1, x, "%s", to_string(client[i].state));
             attroff(COLOR_PAIR(client_state_color(client[i].state)));
 
-            mvprintw(y + 2, x, "Satiety: %d / %d", client[i].hunger_points, FULL);
+            mvprintw(y + 2, x, "Satiety: %d / %d", client[i].hunger_points, FULL_LIMIT);
             mvprintw(y + 3, x, "Meals: %d", client[i].meals);
         }
 
@@ -160,6 +164,7 @@ const char* to_string(ClientState state){
         case ClientState::THINKING: return "THINKING";
         case ClientState::HUNGRY:   return "HUNGRY";
         case ClientState::EATING:   return "EATING";
+        case ClientState::FULL:   return "FULL";
         case ClientState::WAITING:  return "WAITING";
         case ClientState::WAIT_MENU:  return "WAIT_MENU";
         case ClientState::STARVING:     return "STARVING";
@@ -189,6 +194,7 @@ int client_state_color(ClientState state){
         case ClientState::THINKING: return YELLOW;
         case ClientState::HUNGRY:   return MAGENTA;
         case ClientState::EATING:   return GREEN;
+        case ClientState::FULL:   return PINK;
         case ClientState::WAITING:  return CYAN;
         case ClientState::WAIT_MENU:  return PEACH;
         case ClientState::STARVING: return RED;
