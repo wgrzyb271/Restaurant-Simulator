@@ -24,6 +24,7 @@ pthread_t* waiter_t;
 
 // kitchen thread
 pthread_t kitchen_t;
+pthread_t dishwasher_t;
 
 // client array
 Client* client;
@@ -36,6 +37,9 @@ Waiter waiter[WAITER_NO];
 
 // kitchen
 Kitchen kitchen;
+
+// dishwasher
+Dishwasher dishwasher;
 
 void* client_job(void* arg){
     Client* current_client = (Client *) arg;
@@ -107,6 +111,14 @@ void* client_job(void* arg){
     return nullptr;
 }
 
+void fork_wait(int id){
+    pthread_mutex_lock(&forks[id].mutex);
+    while (forks[id].state == DIRTY)
+        pthread_cond_wait(&forks[id].cond, &forks[id].mutex);
+    pthread_mutex_unlock(&forks[id].mutex);
+
+}
+
 void client_think(Client* current_client){
     // choose a meal
     sleep(random_between(2, 3));
@@ -144,29 +156,31 @@ void pick_up_forks(Client* current_client){
     current_client->state = NONE_FORK;
 
     if(is_even){
-        pthread_mutex_lock(&forks[right_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = RIGHT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+
+        fork_wait(right_fork);
+
+
+        current_client->state = RIGHT_FORK;
         forks[right_fork].is_occupied = true;
 
-        pthread_mutex_lock(&forks[left_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = LEFT_RIGHT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+        fork_wait(left_fork);
+
+
+        current_client->state = LEFT_RIGHT_FORK;
         forks[left_fork].is_occupied = true;
 
     } else {
-        pthread_mutex_lock(&forks[left_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = LEFT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+
+        fork_wait(left_fork);
+
+
+        current_client->state = LEFT_FORK;
         forks[left_fork].is_occupied = true;
 
-        pthread_mutex_lock(&forks[right_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = LEFT_RIGHT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+        fork_wait(right_fork);
+
+
+        current_client->state = LEFT_RIGHT_FORK;
         forks[right_fork].is_occupied = true;
 
     }
@@ -177,33 +191,37 @@ void release_forks(Client* current_client){
     int left_fork = (current_client->id + 1) % FORK;
     int right_fork = current_client->id % FORK;
 
-    if(is_even){
-        forks[right_fork].is_occupied = false;
-        pthread_mutex_unlock(&forks[right_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = LEFT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+    forks[right_fork].state = DIRTY;
+    forks[left_fork].state = DIRTY;
 
-        forks[left_fork].is_occupied = false;
+    pthread_mutex_lock(&dishwasher.mutex);
+    dishwasher.dirty_fork.push(right_fork);
+    dishwasher.dirty_fork.push(left_fork);
+    pthread_mutex_unlock(&dishwasher.mutex);
+
+    forks[right_fork].is_occupied = false;
+    forks[left_fork].is_occupied = false;
+
+    if(is_even){
+
+        pthread_mutex_unlock(&forks[right_fork].mutex);
+        current_client->state = LEFT_FORK;
+
         pthread_mutex_unlock(&forks[left_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = NONE_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+        current_client->state = NONE_FORK;
+
 
     } else {
-        forks[left_fork].is_occupied = false;
         pthread_mutex_unlock(&forks[left_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = RIGHT_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+        current_client->state = RIGHT_FORK;
 
-        forks[right_fork].is_occupied = false;
+
         pthread_mutex_unlock(&forks[right_fork].mutex);
-//            pthread_mutex_lock(&current_client->mutex);
-                current_client->state = NONE_FORK;
-//            pthread_mutex_unlock(&current_client->mutex);
+        current_client->state = NONE_FORK;
 
     }
+
+
 }
 
 void client_eat(Client* current_client){
@@ -278,47 +296,47 @@ void* kitchen_job(void* arg){
 
         if(done) break;
 
-        switch (kitchen.state) {
+        switch (current_kitchen->state) {
 
             case READY:
                 // check if food is needed
-                pthread_mutex_lock(&kitchen.mutex_meal);
-                if (!kitchen.meal_queue.empty())
-                    kitchen.state = BUSY;
-                pthread_mutex_unlock(&kitchen.mutex_meal);
+                pthread_mutex_lock(&current_kitchen->mutex_meal);
+                if (!current_kitchen->meal_queue.empty())
+                    current_kitchen->state = COOKING;
+                pthread_mutex_unlock(&current_kitchen->mutex_meal);
                 break;
-            case BUSY:
+            case COOKING:
                 // prepare food
 
                 while (true){
-                    pthread_mutex_lock(&kitchen.mutex_meal);
+                    pthread_mutex_lock(&current_kitchen->mutex_meal);
 
-                    if (kitchen.meal_queue.empty()) {
-                        kitchen.state = FINISHED;
-                        pthread_mutex_unlock(&kitchen.mutex_meal);
+                    if (current_kitchen->meal_queue.empty()) {
+                        current_kitchen->state = FINISHED;
+                        pthread_mutex_unlock(&current_kitchen->mutex_meal);
                         break;
                     }
-                    int meal = kitchen.meal_queue.front();
-                    kitchen.meal_queue.pop();
-                    pthread_mutex_unlock(&kitchen.mutex_meal);
+                    int meal = current_kitchen->meal_queue.front();
+                    current_kitchen->meal_queue.pop();
+                    pthread_mutex_unlock(&current_kitchen->mutex_meal);
 
                     // simulate preparation time
 //                    sleep(random_between(5, 10));
                     sleep(random_between(1, 2));
 
                     // mark as finished
-                    pthread_mutex_lock(&kitchen.mutex_ready);
-                    kitchen.ready_queue.push(meal);
+                    pthread_mutex_lock(&current_kitchen->mutex_ready);
+                    current_kitchen->ready_queue.push(meal);
                     // notify client that his meal is ready
 //                    pthread_cond_signal(&client[meal].cond_food);
-                    pthread_mutex_unlock(&kitchen.mutex_ready);
+                    pthread_mutex_unlock(&current_kitchen->mutex_ready);
                 }
 
                 break;
             case FINISHED:
                 // show state
                 usleep(1000);
-                kitchen.state = READY;
+                current_kitchen->state = READY;
                 break;
             default:
                 usleep(5000);
@@ -330,6 +348,59 @@ void* kitchen_job(void* arg){
     }
     return nullptr;
 }
+
+
+void* dishwasher_job(void* arg){
+    Dishwasher* current_dishwasher = (Dishwasher*) arg;
+    while (true){
+
+        pthread_mutex_lock(&mutex);
+        while(paused && !done) {
+            pthread_cond_wait(&cond, &mutex);
+        }
+        pthread_mutex_unlock(&mutex);
+
+        if(done) break;
+
+        switch (current_dishwasher->state) {
+            case AVAILABLE:{
+                pthread_mutex_lock(&current_dishwasher->mutex);
+                if(!current_dishwasher->dirty_fork.empty())
+                    current_dishwasher->state = CLEANING;
+                pthread_mutex_unlock(&current_dishwasher->mutex);
+                break;
+            }
+            case CLEANING:{
+                pthread_mutex_lock(&current_dishwasher->mutex);
+                while (!current_dishwasher->dirty_fork.empty()){
+                    int fork = current_dishwasher->dirty_fork.front();
+                    current_dishwasher->dirty_fork.pop();
+
+                    pthread_mutex_unlock(&current_dishwasher->mutex);
+
+                    // simulate cleaning process
+                    sleep(random_between(1, 3));
+
+                    pthread_mutex_lock(&forks[fork].mutex);
+                    forks[fork].state = CLEAN;
+                    // notify client, his fork is ready
+                    pthread_cond_signal(&forks[fork].cond);
+                    pthread_mutex_unlock(&forks[fork].mutex);
+
+                    pthread_mutex_lock(&current_dishwasher->mutex);
+                }
+                current_dishwasher->state = AVAILABLE;
+                pthread_mutex_unlock(&current_dishwasher->mutex);
+                break;
+            }
+            default:
+                usleep(10000);
+                break;
+        }
+    }
+    return nullptr;
+}
+
 
 void give_client_meal(Client* client_served, Waiter* current_waiter){
     // TODO waiter - hand meal round till empty queue
@@ -406,11 +477,16 @@ void init(){
     for(ItemType& item : menu) {
         item.is_occupied = false;
         item.state = CLEAN;
+
     }
+
+    // TODO delete client cond for resources and use ItemType ones
 
     for(ItemType& item : forks) {
         item.is_occupied = false;
         item.state = CLEAN;
+        pthread_mutex_init(&item.mutex, nullptr);
+        pthread_cond_init(&item.cond, nullptr);
     }
 
 
@@ -466,6 +542,11 @@ void init(){
     pthread_mutex_init(&kitchen.mutex_meal, nullptr);
     pthread_mutex_init(&kitchen.mutex_ready, nullptr);
 
+    // init dishwasher
+    dishwasher.state = AVAILABLE;
+    pthread_mutex_init(&dishwasher.mutex, nullptr);
+    pthread_cond_init(&dishwasher.cond, nullptr);
+
 
 
 
@@ -480,6 +561,8 @@ void finish_simulation(){
         pthread_join(waiter_t[i], nullptr);
 
     pthread_join(kitchen_t, nullptr);
+
+    pthread_join(dishwasher_t, nullptr);
 }
 
 void begin_simulation(){
@@ -494,6 +577,7 @@ void begin_simulation(){
     }
 
     pthread_create(&kitchen_t, nullptr, kitchen_job, &kitchen);
+    pthread_create(&dishwasher_t, nullptr, dishwasher_job, &dishwasher);
 
 }
 
@@ -521,6 +605,9 @@ void cleanup(){
 
     pthread_mutex_destroy(&kitchen.mutex_meal);
     pthread_mutex_destroy(&kitchen.mutex_ready);
+
+    pthread_mutex_destroy(&dishwasher.mutex);
+    pthread_cond_destroy(&dishwasher.cond);
 
     delete[] client_t;
     delete[] waiter_t;

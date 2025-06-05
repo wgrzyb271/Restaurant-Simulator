@@ -16,6 +16,8 @@
 #define MAGENTA 5
 #define PEACH 8
 #define PINK 10
+#define BROWN 11
+
 
 bool done = false;
 bool paused = false;
@@ -39,14 +41,14 @@ void print_centered(WINDOW* win, int row, const char* format, ...) {
 
 // print legend explaining client states and resource colors
 void print_legend(WINDOW* win) {
-    int start_y = 30;
+    int start_y = 35;
     int start_x = 2;
 
     wattron(win, A_BOLD);
     mvwprintw(win, start_y, start_x, "Legend:");
     wattroff(win, A_BOLD);
 
-    mvwprintw(win, start_y + 1, start_x, "Client states:");
+    mvwprintw(win, start_y + 1, start_x, "Client states with forks:");
     mvwprintw(win, start_y + 2, start_x + 2, "..  - No forks");
     mvwprintw(win, start_y + 3, start_x + 2, "L.  - Has left fork");
     mvwprintw(win, start_y + 4, start_x + 2, ".R  - Has right fork");
@@ -63,12 +65,15 @@ void print_legend(WINDOW* win) {
 
 // draw resource availability with color coding at specified horizontal position
 void print_resources(WINDOW* win, int start_x) {
+    int y = 25;
+
+    // print header for available resources
     wattron(win, A_BOLD);
-    mvwprintw(win, 25, start_x, "Available Resources");
+    mvwprintw(win, y, start_x, "Available Resources");
     wattroff(win, A_BOLD);
 
-    mvwprintw(win, 27, start_x, "MENU: ");
-    int y = 27;
+    y += 2;
+    mvwprintw(win, y, start_x, "MENU: ");
     int x = start_x + strlen("MENU: ");
 
     // print menu item availability with colors
@@ -77,6 +82,7 @@ void print_resources(WINDOW* win, int start_x) {
         wattron(win, COLOR_PAIR(color_pair));
 
         char buf[32];
+        // print YES if not occupied (available), NO if occupied
         sprintf(buf, "[%d] %-3s   ", i, !menu[i].is_occupied ? "YES" : "NO");
 
         mvwprintw(win, y, x, buf);
@@ -85,8 +91,8 @@ void print_resources(WINDOW* win, int start_x) {
         wattroff(win, COLOR_PAIR(color_pair));
     }
 
-    // print fork availability with colors on the next line
-    int forks_y = y + 1;
+    y += 1;
+    int forks_y = y;
     int forks_x = start_x;
     mvwprintw(win, forks_y, forks_x, "Available Forks: ");
     forks_x += strlen("Available Forks: ");
@@ -103,7 +109,31 @@ void print_resources(WINDOW* win, int start_x) {
 
         wattroff(win, COLOR_PAIR(color_pair));
     }
+
+    // print fork states (clean or dirty) below availability
+    y += 2;
+    wattron(win, A_BOLD);
+    mvwprintw(win, y, start_x, "Forks states");
+    wattroff(win, A_BOLD);
+
+    y += 1;
+    x = start_x;
+
+    for (int i = 0; i < FORK; ++i) {
+        int color_pair = forks[i].state == CLEAN ? WHITE : BROWN;
+        wattron(win, COLOR_PAIR(color_pair));
+
+        char buf[32];
+        // print CLEAN if clean, DIRTY if dirty
+        sprintf(buf, "[%d] %-6s   ", i, forks[i].state == CLEAN ? "CLEAN" : "DIRTY");
+
+        mvwprintw(win, y, x, buf);
+        x += strlen(buf);
+
+        wattroff(win, COLOR_PAIR(color_pair));
+    }
 }
+
 
 // main interface loop runs until user quits
 void* interface(void*) {
@@ -123,6 +153,10 @@ void* interface(void*) {
     init_pair(MAGENTA, COLOR_MAGENTA, -1);
     init_pair(PEACH, 217, -1);
     init_pair(PINK, 205, -1);
+
+    init_color(BROWN, 500, 250, 0);
+    init_pair(BROWN, BROWN, -1);
+
 
     // create off-screen window buffer for smooth drawing
     WINDOW* buffer = newwin(0, 0, 0, 0);
@@ -192,14 +226,24 @@ void* interface(void*) {
         mvwprintw(buffer, kitchen_y + 1, right_x, "State: %s", to_string(kitchen.state));
         wattroff(buffer, COLOR_PAIR(kitchen_state_color(kitchen.state)));
 
+        // draw dishwasher status
+        wattron(buffer, A_BOLD);
+        mvwprintw(buffer, kitchen_y + 3, right_x, "Dishwasher:");
+        wattroff(buffer, A_BOLD);
+        wattron(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher.state)));
+        mvwprintw(buffer, kitchen_y + 4, right_x, "State: %s", to_string(dishwasher.state));
+        wattroff(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher.state)));
+
+
         // draw waiter status
         wattron(buffer, A_BOLD);
-        mvwprintw(buffer, kitchen_y + 3, right_x, "Waiter %d:", waiter[0].id);
+        mvwprintw(buffer, kitchen_y + 6, right_x, "Waiter %d:", waiter[0].id);
         wattroff(buffer, A_BOLD);
         int waiter_color = waiter[0].busy ? RED : GREEN;
         wattron(buffer, COLOR_PAIR(waiter_color));
-        mvwprintw(buffer, kitchen_y + 4, right_x, "State: %s", waiter[0].busy ? "BUSY" : "AVAILABLE");
+        mvwprintw(buffer, kitchen_y + 7, right_x, "State: %s", waiter[0].busy ? "BUSY" : "AVAILABLE");
         wattroff(buffer, COLOR_PAIR(waiter_color));
+
 
         // draw resources on left side below clients
         print_resources(buffer, start_x);
@@ -244,17 +288,27 @@ const char* to_string(ClientState state) {
 const char* to_string(KitchenState state) {
     switch (state) {
         case KitchenState::READY: return "READY";
-        case KitchenState::BUSY: return "BUSY";
+        case KitchenState::COOKING: return "COOKING";
         case KitchenState::FINISHED: return "FINISHED";
         default: return "UNKNOWN";
     }
 }
+
+
 
 // convert item state enum to string
 const char* to_string(ItemState state) {
     switch (state) {
         case ItemState::CLEAN: return "CLEAN";
         case ItemState::DIRTY: return "DIRTY";
+        default: return "UNKNOWN";
+    }
+}
+
+const char* to_string(DishwasherState state) {
+    switch (state) {
+        case DishwasherState::CLEANING: return "CLEANING";
+        case DishwasherState::AVAILABLE: return "AVAILABLE";
         default: return "UNKNOWN";
     }
 }
@@ -277,8 +331,16 @@ int client_state_color(ClientState state) {
 int kitchen_state_color(KitchenState state) {
     switch (state) {
         case KitchenState::READY: return GREEN;
-        case KitchenState::BUSY: return RED;
+        case KitchenState::COOKING: return RED;
         case KitchenState::FINISHED: return CYAN;
+        default: return WHITE;
+    }
+}
+
+int dishwasher_state_color(DishwasherState state) {
+    switch (state) {
+        case DishwasherState::AVAILABLE: return GREEN;
+        case DishwasherState::CLEANING: return RED;
         default: return WHITE;
     }
 }

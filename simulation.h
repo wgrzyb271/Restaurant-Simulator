@@ -40,8 +40,15 @@ enum ClientState{
 
 enum KitchenState{
     READY,
-    BUSY,
+    COOKING,
     FINISHED
+};
+
+
+
+enum DishwasherState{
+    CLEANING,
+    AVAILABLE
 };
 
 enum ItemState{
@@ -54,6 +61,7 @@ typedef struct{
     ItemState state;
     bool is_occupied;
     pthread_mutex_t mutex;
+    pthread_cond_t cond;
 } ItemType;
 
 
@@ -101,6 +109,12 @@ typedef struct{
     pthread_mutex_t mutex_ready;
 } Kitchen;
 
+typedef struct {
+    DishwasherState state;
+    std::queue<int> dirty_fork;
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+} Dishwasher;
 
 
 void* client_job(void* arg);
@@ -108,10 +122,12 @@ void client_think(Client* current_client);
 void client_eat(Client* current_client);
 void pick_up_forks(Client* current_client);
 void release_forks(Client* current_client);
+void fork_wait(int id);
 
 
 void* waiter_job(void* arg);
 void* kitchen_job(void* arg);
+void* dishwasher_job(void* arg);
 
 
 

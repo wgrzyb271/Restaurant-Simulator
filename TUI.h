@@ -10,6 +10,7 @@
 extern Client* client;
 extern Waiter waiter[WAITER_NO];
 extern Kitchen kitchen;
+extern Dishwasher dishwasher;
 
 extern ItemType menu[MENU];
 extern ItemType forks[FORK];
@@ -19,12 +20,13 @@ void* interface(void*);
 const char*  to_string(ClientState state);
 const char*  to_string(KitchenState state);
 const char*  to_string(ItemState state);
+const char* to_string(DishwasherState state);
 void print_resources(int start_x);
 void print_legend();
 
 
 int client_state_color(ClientState state);
 int kitchen_state_color(KitchenState state);
-
+int dishwasher_state_color(DishwasherState state);
 
 #endif //T_TUI_H
