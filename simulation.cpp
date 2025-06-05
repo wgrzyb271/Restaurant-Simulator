@@ -402,6 +402,19 @@ void seat_client(Client* client_served){
 void init(){
 	// init structures
 
+    // init resources
+    for(ItemType& item : menu) {
+        item.is_occupied = false;
+        item.state = CLEAN;
+    }
+
+    for(ItemType& item : forks) {
+        item.is_occupied = false;
+        item.state = CLEAN;
+    }
+
+
+
    // init client
    client = new Client[STARTING_CLIENT_NO];
    client_t = new pthread_t[STARTING_CLIENT_NO];
