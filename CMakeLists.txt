@@ -3,7 +3,11 @@ project(t)
 
 set(CMAKE_CXX_STANDARD 17)
 
-set(CMAKE_CXX_FLAGS "-lncurses")
+
+
+include_directories(/home/linuxbrew/.linuxbrew/include)
+link_directories(/home/linuxbrew/.linuxbrew/lib)
+
 
 add_executable(
                     t
@@ -15,3 +19,6 @@ add_executable(
         TUI.h
 
 )
+
+
+target_link_libraries(t ncurses)

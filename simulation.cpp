@@ -45,6 +45,10 @@ void* client_job(void* arg){
     Client* current_client = (Client *) arg;
     while(true) {
 
+        if(done){
+            break;
+        }
+
         pthread_mutex_lock(&mutex);
         while(paused && !done) {
             pthread_cond_wait(&cond, &mutex);
@@ -52,9 +56,7 @@ void* client_job(void* arg){
 
         pthread_mutex_unlock(&mutex);
 
-        if(done){
-            break;
-        }
+
 
         switch (current_client->state) {
             case WAITING:
@@ -148,7 +150,6 @@ void client_think(Client* current_client){
 void pick_up_forks(Client* current_client){
     // TODO make sure client can only access forks at his table
     //  on his left/right else he must wait for it
-    //  TODO add state of  forks clean/dirty and kitchen must clean it
     bool is_even = current_client->id % 2 == 0;
     int left_fork = (current_client->id + 1) % FORK;
     int right_fork = current_client->id % FORK;
@@ -235,6 +236,8 @@ void client_eat(Client* current_client){
 
     pthread_mutex_lock(&current_client->points_lock);
     current_client->hunger_points += random_between(1,15);
+    if (current_client->hunger_points >= FULL_LIMIT)
+        current_client->hunger_points = FULL_LIMIT;
     pthread_mutex_unlock(&current_client->points_lock);
 
     if (current_client->hunger_points < FULL_LIMIT)
@@ -242,14 +245,15 @@ void client_eat(Client* current_client){
     else
         current_client->state = FULL;
 
-    // TODO points thread to decrement and add even/not even fork pick up
-
 
 }
 
 void* waiter_job(void* arg){
     Waiter* current_waiter = (Waiter*) arg;
     while(true) {
+
+        if(done) break;
+
         // pause / finish
         pthread_mutex_lock(&mutex);
         while(paused && !done) {
@@ -257,26 +261,14 @@ void* waiter_job(void* arg){
         }
         pthread_mutex_unlock(&mutex);
 
-
-        if(done) break;
-
         for(int i = 0; i < clients; i++) {
             Client* client_served = &client[i];
-            if (client_served->state == WAITING && !client_served->seated) {
-                current_waiter->busy = true;
-                seat_client(client_served);
-                current_waiter->busy = false;
-            }
 
-            if (client_served->state == WAIT_MENU && !client_served->has_menu) {
-                current_waiter->busy = true;
-                give_client_menu(client_served);
-                current_waiter->busy = false;
-            }
-
-//            if(client_served->state == HUNGRY && !client_served->has_food)
-                give_client_meal(client_served, current_waiter);
+            seat_client(current_waiter, client_served);
+            give_client_menu(current_waiter, client_served);
         }
+
+        give_client_meal(current_waiter);
 
 
         usleep(10000);
@@ -288,13 +280,15 @@ void* kitchen_job(void* arg){
     Kitchen* current_kitchen = (Kitchen*) arg;
     while(true) {
 
+        if(done) break;
+
         pthread_mutex_lock(&mutex);
         while(paused && !done) {
             pthread_cond_wait(&cond, &mutex);
         }
         pthread_mutex_unlock(&mutex);
 
-        if(done) break;
+
 
         switch (current_kitchen->state) {
 
@@ -327,8 +321,6 @@ void* kitchen_job(void* arg){
                     // mark as finished
                     pthread_mutex_lock(&current_kitchen->mutex_ready);
                     current_kitchen->ready_queue.push(meal);
-                    // notify client that his meal is ready
-//                    pthread_cond_signal(&client[meal].cond_food);
                     pthread_mutex_unlock(&current_kitchen->mutex_ready);
                 }
 
@@ -354,13 +346,15 @@ void* dishwasher_job(void* arg){
     Dishwasher* current_dishwasher = (Dishwasher*) arg;
     while (true){
 
+        if(done) break;
+
         pthread_mutex_lock(&mutex);
         while(paused && !done) {
             pthread_cond_wait(&cond, &mutex);
         }
         pthread_mutex_unlock(&mutex);
 
-        if(done) break;
+
 
         switch (current_dishwasher->state) {
             case AVAILABLE:{
@@ -402,8 +396,7 @@ void* dishwasher_job(void* arg){
 }
 
 
-void give_client_meal(Client* client_served, Waiter* current_waiter){
-    // TODO waiter - hand meal round till empty queue
+void give_client_meal(Waiter* current_waiter){
     pthread_mutex_lock(&kitchen.mutex_ready);
     if (!kitchen.ready_queue.empty()) {
         current_waiter->busy = true;
@@ -422,27 +415,33 @@ void give_client_meal(Client* client_served, Waiter* current_waiter){
 }
 
 
-void give_client_menu(Client* client_served){
-    for(int m = 0; m < MENU; m++){
-        pthread_mutex_lock(&menu[m].mutex);
-        if(!menu[m].is_occupied){
-            pthread_mutex_lock(&client_served->mutex);
-            client_served->has_menu = true;
-            menu[m].is_occupied = true;
-            client_served->menu_id = m;
-            pthread_cond_signal(&client_served->cond_menu);
-            pthread_mutex_unlock(&client_served->mutex);
+void give_client_menu(Waiter* waiter, Client* client_served) {
+    if (client_served->state == WAIT_MENU && !client_served->has_menu) {
+        waiter->busy = true;
+        for(int m = 0; m < MENU; m++){
+            pthread_mutex_lock(&menu[m].mutex);
+            if(!menu[m].is_occupied){
+                pthread_mutex_lock(&client_served->mutex);
+                client_served->has_menu = true;
+                menu[m].is_occupied = true;
+                client_served->menu_id = m;
+                pthread_cond_signal(&client_served->cond_menu);
+                pthread_mutex_unlock(&client_served->mutex);
+                pthread_mutex_unlock(&menu[m].mutex);
+                return;
+            }
             pthread_mutex_unlock(&menu[m].mutex);
-            return;
         }
-        pthread_mutex_unlock(&menu[m].mutex);
+        waiter->busy = false;
     }
 }
 
 
 
-void seat_client(Client* client_served){
+void seat_client(Waiter* waiter, Client* client_served){
 
+    if (client_served->state == WAITING && !client_served->seated) {
+        waiter->busy = true;
         for(int t = 0; t < TABLE; t++){
             for(int s = 0; s < SEAT; s++){
                 pthread_mutex_lock(&table[t].lock[s]);
@@ -465,7 +464,8 @@ void seat_client(Client* client_served){
                 pthread_mutex_unlock(&table[t].lock[s]);
             }
         }
-
+        waiter->busy = false;
+    }
 }
 
 

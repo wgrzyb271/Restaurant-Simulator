@@ -3,7 +3,7 @@
 #include <queue>
 
 #define STARTING_CLIENT_NO 10
-#define WAITER_NO 1
+#define WAITER_NO 2
 #define KITCHEN_NO 1
 // number of total tables
 #define TABLE 5
@@ -141,8 +141,8 @@ void terminate_interface();
 
 
 extern int random_between(int a=0, int b=70);
-void give_client_meal(Client* client_served, Waiter* current_waiter);
-void give_client_menu(Client* client_served);
-void seat_client(Client* client_served);
+void give_client_meal(Waiter* current_waiter);
+void give_client_menu(Waiter* waiter, Client* client_served);
+void seat_client(Waiter* waiter, Client* client_served);
 void init();
 void cleanup();
