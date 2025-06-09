@@ -8,12 +8,14 @@
 #include "simulation.h"
 
 extern Client* client;
+extern Group* group;
 extern Waiter waiter[WAITER_NO];
 extern Kitchen kitchen;
-extern Dishwasher dishwasher;
+extern Dishwasher dishwasher[DISHWASHER_NO];
 
 extern ItemType menu[MENU];
-extern ItemType forks[FORK];
+extern ItemType forks[FORK_NO];
+extern ItemType knives[KNIFE_NO];
 
 void* interface(void*);
 

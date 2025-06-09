@@ -9,25 +9,27 @@
 //pthread_t interface_t;
 
 // resources
-ItemType plate[PLATE];
-ItemType forks[FORK];
-ItemType knife[KNIFE];
-ItemType glass[GLASS];
+ItemType forks[FORK_NO];
+ItemType knives[KNIFE_NO];
 ItemType menu[MENU];
 
 // client thread
 pthread_t* client_t;
 int clients;
 
+int groups_no = 3;
+
 // waiter thread
 pthread_t* waiter_t;
 
 // kitchen thread
 pthread_t kitchen_t;
-pthread_t dishwasher_t;
+pthread_t dishwasher_t[DISHWASHER_NO];
 
 // client array
 Client* client;
+// group array
+Group* group;
 
 // table array
 Table table[TABLE];
@@ -39,7 +41,13 @@ Waiter waiter[WAITER_NO];
 Kitchen kitchen;
 
 // dishwasher
-Dishwasher dishwasher;
+Dishwasher dishwasher[DISHWASHER_NO];
+Dishwasher* fork_dishwasher;
+Dishwasher* knives_dishwasher;
+
+
+// TODO add group structure - group of friends comes to restaurant, they must seat at the same specific table
+// TODO group can only use forks at their table
 
 void* client_job(void* arg){
     Client* current_client = (Client *) arg;
@@ -82,15 +90,14 @@ void* client_job(void* arg){
 
                 break;
             case HUNGRY:{
-//                usleep(100000);
+                usleep(100000);
                 // wait for the order
                 pthread_mutex_lock(&current_client->mutex);
                 while (!current_client->has_food)
                     pthread_cond_wait(&current_client->cond_food, &current_client->mutex);
                 // pick up forks
-                pick_up_forks(current_client);
+                pick_up_cutlery(current_client);
 
-//                pthread_mutex_lock()
                 current_client->state = EATING;
                 pthread_mutex_unlock(&current_client->mutex);
                 break;
@@ -113,11 +120,11 @@ void* client_job(void* arg){
     return nullptr;
 }
 
-void fork_wait(int id){
-    pthread_mutex_lock(&forks[id].mutex);
-    while (forks[id].state == DIRTY)
-        pthread_cond_wait(&forks[id].cond, &forks[id].mutex);
-    pthread_mutex_unlock(&forks[id].mutex);
+void item_wait(int id, ItemType* item){
+    pthread_mutex_lock(&item[id].mutex);
+    while (item[id].state == DIRTY)
+        pthread_cond_wait(&item[id].cond, &item[id].mutex);
+    pthread_mutex_unlock(&item[id].mutex);
 
 }
 
@@ -147,78 +154,78 @@ void client_think(Client* current_client){
 
 }
 
-void pick_up_forks(Client* current_client){
-    // TODO make sure client can only access forks at his table
-    //  on his left/right else he must wait for it
-    bool is_even = current_client->id % 2 == 0;
-    int left_fork = (current_client->id + 1) % FORK;
-    int right_fork = current_client->id % FORK;
+void pick_up_cutlery(Client* current_client){
+    int id = current_client->id;
+    int is_even = id % 2 == 0;
 
-    current_client->state = NONE_FORK;
+    current_client->state = NONE;
 
-    if(is_even){
+    if(is_even) {
+        item_wait(id, forks);
 
-        fork_wait(right_fork);
+        current_client->state = FORK;
+        forks[id].is_occupied = true;
+        forks[id].table_id = current_client->table_id;
 
+        item_wait(id, knives);
 
-        current_client->state = RIGHT_FORK;
-        forks[right_fork].is_occupied = true;
-
-        fork_wait(left_fork);
-
-
-        current_client->state = LEFT_RIGHT_FORK;
-        forks[left_fork].is_occupied = true;
-
+        current_client->state = FORK_KNIFE;
+        knives[id].is_occupied = true;
+        knives[id].table_id = current_client->table_id;
     } else {
+        item_wait(id, knives);
 
-        fork_wait(left_fork);
+        current_client->state = FORK_KNIFE;
+        knives[id].is_occupied = true;
+        knives[id].table_id = current_client->table_id;
 
+        item_wait(id, forks);
 
-        current_client->state = LEFT_FORK;
-        forks[left_fork].is_occupied = true;
-
-        fork_wait(right_fork);
-
-
-        current_client->state = LEFT_RIGHT_FORK;
-        forks[right_fork].is_occupied = true;
-
+        current_client->state = FORK;
+        forks[id].is_occupied = true;
+        forks[id].table_id = current_client->table_id;
     }
+
 }
 
-void release_forks(Client* current_client){
+void release_cutlery(Client* current_client){
     bool is_even = current_client->id % 2 == 0;
-    int left_fork = (current_client->id + 1) % FORK;
-    int right_fork = current_client->id % FORK;
+    int id = current_client->id;
 
-    forks[right_fork].state = DIRTY;
-    forks[left_fork].state = DIRTY;
+    forks[id].state = DIRTY;
+    knives[id].state = DIRTY;
 
-    pthread_mutex_lock(&dishwasher.mutex);
-    dishwasher.dirty_fork.push(right_fork);
-    dishwasher.dirty_fork.push(left_fork);
-    pthread_mutex_unlock(&dishwasher.mutex);
 
-    forks[right_fork].is_occupied = false;
-    forks[left_fork].is_occupied = false;
+    pthread_mutex_lock(&fork_dishwasher->mutex);
+    fork_dishwasher->dirty_queue.push(id);
+    pthread_mutex_unlock(&fork_dishwasher->mutex);
+
+    pthread_mutex_lock(&knives_dishwasher->mutex);
+    knives_dishwasher->dirty_queue.push(id);
+    pthread_mutex_unlock(&knives_dishwasher->mutex);
+
+
+    forks[id].is_occupied = false;
+    knives[id].is_occupied = false;
+    forks[id].table_id = -1;
+    knives[id].table_id = -1;
 
     if(is_even){
 
-        pthread_mutex_unlock(&forks[right_fork].mutex);
-        current_client->state = LEFT_FORK;
+        pthread_mutex_unlock(&forks[id].mutex);
+        current_client->state = KNIFE;
 
-        pthread_mutex_unlock(&forks[left_fork].mutex);
-        current_client->state = NONE_FORK;
+        pthread_mutex_unlock(&knives[id].mutex);
+        current_client->state = NONE;
 
 
     } else {
-        pthread_mutex_unlock(&forks[left_fork].mutex);
-        current_client->state = RIGHT_FORK;
+        pthread_mutex_unlock(&knives[id].mutex);
+        current_client->state = FORK;
 
 
-        pthread_mutex_unlock(&forks[right_fork].mutex);
-        current_client->state = NONE_FORK;
+        pthread_mutex_unlock(&forks[id].mutex);
+        current_client->state = NONE;
 
     }
 
@@ -229,7 +236,7 @@ void client_eat(Client* current_client){
     sleep(random_between(3, 4));
 
     pthread_mutex_lock(&current_client->mutex);
-    release_forks(current_client);
+    release_cutlery(current_client);
     pthread_mutex_unlock(&current_client->mutex);
 
     current_client->meals++;
@@ -261,15 +268,21 @@ void* waiter_job(void* arg){
         }
         pthread_mutex_unlock(&mutex);
 
+        for(int i = 0; i < groups_no; i++) {
+            Group* group_served = &group[i];
+
+            // sleep(2);
+            pthread_mutex_lock(&group_served->mutex);
+            seat_group(current_waiter, group_served);
+            pthread_mutex_unlock(&group_served->mutex);
+        }
+
         for(int i = 0; i < clients; i++) {
             Client* client_served = &client[i];
-
-            seat_client(current_waiter, client_served);
             give_client_menu(current_waiter, client_served);
         }
 
         give_client_meal(current_waiter);
-
 
         usleep(10000);
     }
@@ -342,58 +355,85 @@ void* kitchen_job(void* arg){
 }
 
 
-void* dishwasher_job(void* arg){
+void* dishwasher_job(void* arg) {
     Dishwasher* current_dishwasher = (Dishwasher*) arg;
-    while (true){
+    bool clean_forks = current_dishwasher->id == 0;
 
-        if(done) break;
+    while (true) {
+        if (done) break;
 
         pthread_mutex_lock(&mutex);
-        while(paused && !done) {
+        while (paused && !done) {
             pthread_cond_wait(&cond, &mutex);
         }
         pthread_mutex_unlock(&mutex);
 
-
-
         switch (current_dishwasher->state) {
-            case AVAILABLE:{
+            case AVAILABLE: {
                 pthread_mutex_lock(&current_dishwasher->mutex);
-                if(!current_dishwasher->dirty_fork.empty())
-                    current_dishwasher->state = CLEANING;
+                if (clean_forks) {
+                    if (!current_dishwasher->dirty_queue.empty()) {
+                        current_dishwasher->state = CLEANING;
+                    }
+                } else {
+                    if (!current_dishwasher->dirty_queue.empty()) {
+                        current_dishwasher->state = CLEANING;
+                    }
+                }
                 pthread_mutex_unlock(&current_dishwasher->mutex);
                 break;
             }
-            case CLEANING:{
+
+            case CLEANING: {
                 pthread_mutex_lock(&current_dishwasher->mutex);
-                while (!current_dishwasher->dirty_fork.empty()){
-                    int fork = current_dishwasher->dirty_fork.front();
-                    current_dishwasher->dirty_fork.pop();
 
-                    pthread_mutex_unlock(&current_dishwasher->mutex);
+                if (clean_forks) {
+                    while (!current_dishwasher->dirty_queue.empty()) {
+                        int fork = current_dishwasher->dirty_queue.front();
+                        current_dishwasher->dirty_queue.pop();
+                        pthread_mutex_unlock(&current_dishwasher->mutex);
 
-                    // simulate cleaning process
-                    sleep(random_between(1, 3));
+                        sleep(random_between(1, 3));
 
-                    pthread_mutex_lock(&forks[fork].mutex);
-                    forks[fork].state = CLEAN;
-                    // notify client, his fork is ready
-                    pthread_cond_signal(&forks[fork].cond);
-                    pthread_mutex_unlock(&forks[fork].mutex);
+                        pthread_mutex_lock(&forks[fork].mutex);
+                        forks[fork].state = CLEAN;
+                        pthread_cond_signal(&forks[fork].cond);
+                        pthread_mutex_unlock(&forks[fork].mutex);
 
-                    pthread_mutex_lock(&current_dishwasher->mutex);
+                        pthread_mutex_lock(&current_dishwasher->mutex);
+                    }
+                } else {
+                    while (!current_dishwasher->dirty_queue.empty()) {
+                        int knife = current_dishwasher->dirty_queue.front();
+                        current_dishwasher->dirty_queue.pop();
+                        pthread_mutex_unlock(&current_dishwasher->mutex);
+
+                        sleep(random_between(1, 3));
+
+                        pthread_mutex_lock(&knives[knife].mutex);
+                        knives[knife].state = CLEAN;
+                        pthread_cond_signal(&knives[knife].cond);
+                        pthread_mutex_unlock(&knives[knife].mutex);
+
+                        pthread_mutex_lock(&current_dishwasher->mutex);
+                    }
                 }
+
                 current_dishwasher->state = AVAILABLE;
                 pthread_mutex_unlock(&current_dishwasher->mutex);
                 break;
             }
+
             default:
-                usleep(10000);
+                usleep(10000); // 10 ms
                 break;
         }
     }
+
     return nullptr;
 }
+
+
 
 
 void give_client_meal(Waiter* current_waiter){
@@ -438,35 +478,67 @@ void give_client_menu(Waiter* waiter, Client* client_served) {
 
 
 
-void seat_client(Waiter* waiter, Client* client_served){
-
-    if (client_served->state == WAITING && !client_served->seated) {
-        waiter->busy = true;
-        for(int t = 0; t < TABLE; t++){
-            for(int s = 0; s < SEAT; s++){
-                pthread_mutex_lock(&table[t].lock[s]);
-                if(!table[t].seat_occupied[s]){
-                    table[t].seat_occupied[s] = true;
-
-                    pthread_mutex_lock(&client_served->mutex);
-
-                    client_served->seated = true;
-                    client_served->table_id = t;
-                    client_served->seat_id = s;
-
-                    pthread_cond_signal(&client_served->cond_seated);
-
-                    pthread_mutex_unlock(&client_served->mutex);
-                    pthread_mutex_unlock(&table[t].lock[s]);
-
-                    return;
-                }
-                pthread_mutex_unlock(&table[t].lock[s]);
-            }
-        }
-        waiter->busy = false;
+void seat_group(Waiter* waiter, Group* group_served) {
+    if (group_served->table_id != -1) {
+        // group already seated
+        return;
     }
+
+    waiter->busy = true;
+
+    for (int t = 0; t < TABLE; t++) {
+        pthread_mutex_lock(&table[t].mutex);
+        if (table[t].free_seats >= group_served->size) {
+            int seated_count = 0;
+            for (int s = 0; s < SEAT && seated_count < group_served->size; s++) {
+                if (!table[t].seat_occupied[s]) {
+                    // mark seat as occupied
+                    table[t].seat_occupied[s] = true;
+                    table[t].free_seats--;
+
+                    // assign this seat to the client in the group
+                    Client* client_member = group_served->members[seated_count];
+                    pthread_mutex_lock(&client_member->mutex);
+                    client_member->table_id = t;
+                    client_member->seat_id = s;
+                    client_member->seated = true;
+                    pthread_mutex_unlock(&client_member->mutex);
+
+                    // notify client that they are seated
+                    pthread_mutex_lock(&client_member->mutex);
+                    pthread_cond_signal(&client_member->cond_seated);
+                    pthread_mutex_unlock(&client_member->mutex);
+
+                    seated_count++;
+                }
+            }
+
+            if (seated_count == group_served->size) {
+                pthread_mutex_unlock(&table[t].mutex);
+                group_served->table_id = t;
+                waiter->busy = false;
+                return;
+            } else {
+                // rollback in case not enough seats (shouldn't happen)
+                for (int i = 0; i < seated_count; i++) {
+                    pthread_mutex_lock(&group_served->members[i]->mutex);
+                    int seat = group_served->members[i]->seat_id;
+                    pthread_mutex_unlock(&group_served->members[i]->mutex);
+                    table[t].seat_occupied[seat] = false;
+                    table[t].free_seats++;
+                    group_served->members[i]->seated = false;
+                }
+                pthread_mutex_unlock(&table[t].mutex);
+            }
+        } else {
+            pthread_mutex_unlock(&table[t].mutex);
+        }
+    }
+
+    waiter->busy = false;
 }
+
+
 
 
 
@@ -482,11 +554,22 @@ void init(){
 
     // TODO delete client cond for resources and use ItemType ones
 
-    for(ItemType& item : forks) {
-        item.is_occupied = false;
-        item.state = CLEAN;
-        pthread_mutex_init(&item.mutex, nullptr);
-        pthread_cond_init(&item.cond, nullptr);
+    for(int i = 0; i < FORK_NO; i++) {
+        forks[i].id = i;
+        forks[i].table_id = -1;
+        forks[i].is_occupied = false;
+        forks[i].state = CLEAN;
+        pthread_mutex_init(&forks[i].mutex, nullptr);
+        pthread_cond_init(&forks[i].cond, nullptr);
+    }
+
+    for(int i = 0; i < KNIFE_NO; i++) {
+        knives[i].id = i;
+        knives[i].table_id = -1;
+        knives[i].is_occupied = false;
+        knives[i].state = CLEAN;
+        pthread_mutex_init(&knives[i].mutex, nullptr);
+        pthread_cond_init(&knives[i].cond, nullptr);
     }
 
 
@@ -520,9 +603,43 @@ void init(){
 
    }
 
+   // init group - TODO make sure there is exactly groups no, every client must be assigned to group
+    group = new Group[groups_no];
+
+    int client_id = 0;
+
+
+    for (int i = 0; i < groups_no; i++) {
+        group[i].id = i;
+        group[i].is_seated = false;
+        pthread_mutex_init(&group[i].mutex, nullptr);
+        group[i].table_id = -1;
+        group[i].size = 1;
+        group[i].members = new Client*[SEAT];
+        group[i].members[0] = &client[client_id++];
+    }
+
+    int remaining = clients - groups_no;
+
+    while (remaining > 0) {
+        int group_id = random_between(0, groups_no - 1);
+
+        if (group[group_id].size < SEAT) {
+            group[group_id].members[group[group_id].size] = &client[client_id];
+            client[client_id].group_id = group_id;
+
+            group[group_id].size++;
+            client_id++;
+            remaining--;
+        }
+    }
+
+
    // init table
    for(int i=0; i<TABLE; i++) {
        table[i].id = i;
+       table[i].free_seats = SEAT;
+       pthread_mutex_init(&table[i].mutex, nullptr);
        for (int j = 0; j < SEAT; j++) {
            table[i].seat_occupied[j] = false;
            pthread_mutex_init(&table[i].lock[j], nullptr);
@@ -543,10 +660,15 @@ void init(){
     pthread_mutex_init(&kitchen.mutex_ready, nullptr);
 
     // init dishwasher
-    dishwasher.state = AVAILABLE;
-    pthread_mutex_init(&dishwasher.mutex, nullptr);
-    pthread_cond_init(&dishwasher.cond, nullptr);
+    for (int i = 0; i < DISHWASHER_NO; i++) {
+        dishwasher[i].id = i;
+        dishwasher[i].state = AVAILABLE;
+        pthread_mutex_init(&dishwasher[i].mutex, nullptr);
+        pthread_cond_init(&dishwasher[i].cond, nullptr);
+    }
 
+    fork_dishwasher = &dishwasher[0];
+    knives_dishwasher = &dishwasher[1];
 
 
 
@@ -562,7 +684,8 @@ void finish_simulation(){
 
     pthread_join(kitchen_t, nullptr);
 
-    pthread_join(dishwasher_t, nullptr);
+    for (int i = 0; i < DISHWASHER_NO; i++)
+        pthread_join(dishwasher_t[i], nullptr);
 }
 
 void begin_simulation(){
@@ -577,7 +700,9 @@ void begin_simulation(){
     }
 
     pthread_create(&kitchen_t, nullptr, kitchen_job, &kitchen);
-    pthread_create(&dishwasher_t, nullptr, dishwasher_job, &dishwasher);
+
+    for (int i = 0; i <DISHWASHER_NO; i++)
+        pthread_create(&dishwasher_t[i], nullptr, dishwasher_job, &dishwasher[i]);
 
 }
 
@@ -594,10 +719,17 @@ void cleanup(){
 	// destroy structures
 	delete[] client;
 
-	for(int i=0; i<TABLE; i++)
-		for(int j=0; j<SEAT; j++)
-			pthread_mutex_destroy(&table[i].lock[j]);
+    for (int i = 0; i < groups_no; i++) {
+        delete[] group[i].members;
+        pthread_mutex_destroy(&group[i].mutex);
+    }
+    delete[] group;
 
+	for(int i=0; i<TABLE; i++) {
+	    pthread_mutex_destroy(&table[i].mutex);
+	    for(int j=0; j<SEAT; j++)
+	        pthread_mutex_destroy(&table[i].lock[j]);
+	}
 
 
     for (int i = 0; i < WAITER_NO; i++)
@@ -606,8 +738,10 @@ void cleanup(){
     pthread_mutex_destroy(&kitchen.mutex_meal);
     pthread_mutex_destroy(&kitchen.mutex_ready);
 
-    pthread_mutex_destroy(&dishwasher.mutex);
-    pthread_cond_destroy(&dishwasher.cond);
+    for (int i = 0; i < DISHWASHER_NO; i++) {
+        pthread_mutex_destroy(&dishwasher[i].mutex);
+        pthread_cond_destroy(&dishwasher[i].cond);
+    }
 
     delete[] client_t;
     delete[] waiter_t;

@@ -5,13 +5,14 @@
 #define STARTING_CLIENT_NO 10
 #define WAITER_NO 2
 #define KITCHEN_NO 1
+#define DISHWASHER_NO 2
 // number of total tables
 #define TABLE 5
 // number of seat_occupied for each table
 #define SEAT 5
 #define PLATE 8
-#define FORK 8
-#define KNIFE 8
+#define FORK_NO 8
+#define KNIFE_NO 8
 #define GLASS 8
 #define MENU 8
 #define FULL_LIMIT 100
@@ -29,10 +30,10 @@ enum ClientState{
     WAIT_MENU,
     THINKING,
     HUNGRY,
-    NONE_FORK,
-    LEFT_FORK,
-    RIGHT_FORK,
-    LEFT_RIGHT_FORK,
+    NONE,
+    KNIFE,
+    FORK,
+    FORK_KNIFE,
     EATING,
     FULL,
     STARVING
@@ -58,6 +59,7 @@ enum ItemState{
 
 typedef struct{
     int id;
+    int table_id;
     ItemState state;
     bool is_occupied;
     pthread_mutex_t mutex;
@@ -68,6 +70,7 @@ typedef struct{
 // representation of client
 typedef struct Client{
     int id;
+    int group_id;
     int hunger_points;
     int meals;
     ClientState state;
@@ -88,11 +91,23 @@ typedef struct Client{
     pthread_cond_t cond_food;
 } Client;
 
+typedef struct{
+    int id;
+    bool is_seated;
+    int size;
+    Client** members;
+    int table_id;
+    pthread_mutex_t mutex;
+} Group;
 
 typedef struct{
     int id;
+    int free_seats;
+    ItemType forks[SEAT];
+    ItemType knives[SEAT];
     bool seat_occupied[SEAT];
     pthread_mutex_t lock[SEAT];
+    pthread_mutex_t mutex;
 } Table;
 
 typedef struct{
@@ -110,8 +125,10 @@ typedef struct{
 } Kitchen;
 
 typedef struct {
+    // id 0 -> clean forks, id 1 -> clean knives
+    int id;
     DishwasherState state;
-    std::queue<int> dirty_fork;
+    std::queue<int> dirty_queue;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 } Dishwasher;
@@ -120,9 +137,9 @@ typedef struct {
 void* client_job(void* arg);
 void client_think(Client* current_client);
 void client_eat(Client* current_client);
-void pick_up_forks(Client* current_client);
-void release_forks(Client* current_client);
-void fork_wait(int id);
+void pick_up_cutlery(Client* current_client);
+void release_cutlery(Client* current_client);
+void item_wait(int id, ItemType* item);
 
 
 void* waiter_job(void* arg);
@@ -143,6 +160,6 @@ void terminate_interface();
 extern int random_between(int a=0, int b=70);
 void give_client_meal(Waiter* current_waiter);
 void give_client_menu(Waiter* waiter, Client* client_served);
-void seat_client(Waiter* waiter, Client* client_served);
+void seat_group(Waiter* waiter, Group* group_served);
 void init();
 void cleanup();

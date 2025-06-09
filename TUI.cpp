@@ -41,7 +41,7 @@ void print_centered(WINDOW* win, int row, const char* format, ...) {
 
 // print legend explaining client states and resource colors
 void print_legend(WINDOW* win) {
-    int start_y = 35;
+    int start_y = 40;
     int start_x = 2;
 
     wattron(win, A_BOLD);
@@ -49,10 +49,10 @@ void print_legend(WINDOW* win) {
     wattroff(win, A_BOLD);
 
     mvwprintw(win, start_y + 1, start_x, "Client states with forks:");
-    mvwprintw(win, start_y + 2, start_x + 2, "..  - No forks");
-    mvwprintw(win, start_y + 3, start_x + 2, "L.  - Has left fork");
-    mvwprintw(win, start_y + 4, start_x + 2, ".R  - Has right fork");
-    mvwprintw(win, start_y + 5, start_x + 2, "LR  - Has both forks");
+    mvwprintw(win, start_y + 2, start_x + 2, "..  - No cutlery");
+    mvwprintw(win, start_y + 3, start_x + 2, "F.  - Has fork");
+    mvwprintw(win, start_y + 4, start_x + 2, ".K  - Has knife");
+    mvwprintw(win, start_y + 5, start_x + 2, "FK  - Has cutlery");
 
     mvwprintw(win, start_y + 7, start_x, "Resources:");
     wattron(win, COLOR_PAIR(GREEN));
@@ -82,8 +82,7 @@ void print_resources(WINDOW* win, int start_x) {
         wattron(win, COLOR_PAIR(color_pair));
 
         char buf[32];
-        // print YES if not occupied (available), NO if occupied
-        sprintf(buf, "[%d] %-3s   ", i, !menu[i].is_occupied ? "YES" : "NO");
+        snprintf(buf, sizeof(buf), "[%d] %-3s   ", i, !menu[i].is_occupied ? "YES" : "NO");
 
         mvwprintw(win, y, x, buf);
         x += strlen(buf);
@@ -91,21 +90,39 @@ void print_resources(WINDOW* win, int start_x) {
         wattroff(win, COLOR_PAIR(color_pair));
     }
 
-    y += 1;
+    y += 2;
     int forks_y = y;
     int forks_x = start_x;
     mvwprintw(win, forks_y, forks_x, "Available Forks: ");
     forks_x += strlen("Available Forks: ");
 
-    for (int i = 0; i < FORK; ++i) {
+    for (int i = 0; i < FORK_NO; ++i) {
         int color_pair = forks[i].is_occupied ? RED : GREEN;
         wattron(win, COLOR_PAIR(color_pair));
 
         char buf[16];
-        sprintf(buf, "[%d] %-3s   ", i, !forks[i].is_occupied ? "YES" : "NO");
+        snprintf(buf, sizeof(buf), "[%d] %-3s   ", i, !forks[i].is_occupied ? "YES" : "NO");
 
         mvwprintw(win, forks_y, forks_x, buf);
         forks_x += strlen(buf);
+
+        wattroff(win, COLOR_PAIR(color_pair));
+    }
+
+    // now print Available Knives after forks availability
+    y += 2;
+    mvwprintw(win, y, start_x, "Available Knives: ");
+    int knives_x = start_x + strlen("Available Knives: ");
+
+    for (int i = 0; i < KNIFE_NO; ++i) {
+        int color_pair = knives[i].is_occupied ? RED : GREEN;
+        wattron(win, COLOR_PAIR(color_pair));
+
+        char buf[16];
+        snprintf(buf, sizeof(buf), "[%d] %-3s   ", i, !knives[i].is_occupied ? "YES" : "NO");
+
+        mvwprintw(win, y, knives_x, buf);
+        knives_x += strlen(buf);
 
         wattroff(win, COLOR_PAIR(color_pair));
     }
@@ -119,13 +136,34 @@ void print_resources(WINDOW* win, int start_x) {
     y += 1;
     x = start_x;
 
-    for (int i = 0; i < FORK; ++i) {
+    for (int i = 0; i < FORK_NO; ++i) {
         int color_pair = forks[i].state == CLEAN ? WHITE : BROWN;
         wattron(win, COLOR_PAIR(color_pair));
 
         char buf[32];
-        // print CLEAN if clean, DIRTY if dirty
-        sprintf(buf, "[%d] %-6s   ", i, forks[i].state == CLEAN ? "CLEAN" : "DIRTY");
+        snprintf(buf, sizeof(buf), "[%d] %-6s   ", i, forks[i].state == CLEAN ? "CLEAN" : "DIRTY");
+
+        mvwprintw(win, y, x, buf);
+        x += strlen(buf);
+
+        wattroff(win, COLOR_PAIR(color_pair));
+    }
+
+    // print knife states below forks states
+    y += 2;
+    wattron(win, A_BOLD);
+    mvwprintw(win, y, start_x, "Knives states");
+    wattroff(win, A_BOLD);
+
+    y += 1;
+    x = start_x;
+
+    for (int i = 0; i < KNIFE_NO; ++i) {
+        int color_pair = knives[i].state == CLEAN ? WHITE : BROWN;
+        wattron(win, COLOR_PAIR(color_pair));
+
+        char buf[32];
+        snprintf(buf, sizeof(buf), "[%d] %-6s   ", i, knives[i].state == CLEAN ? "CLEAN" : "DIRTY");
 
         mvwprintw(win, y, x, buf);
         x += strlen(buf);
@@ -133,6 +171,7 @@ void print_resources(WINDOW* win, int start_x) {
         wattroff(win, COLOR_PAIR(color_pair));
     }
 }
+
 
 
 // main interface loop runs until user quits
@@ -204,7 +243,7 @@ void* interface(void*) {
             int y = 3 + row * 5;
 
             wattron(buffer, A_BOLD);
-            mvwprintw(buffer, y, x, "Client %d", client[i].id);
+            mvwprintw(buffer, y, x, "Client %d - group %d", client[i].id, client[i].group_id);
             wattroff(buffer, A_BOLD);
 
             wattron(buffer, COLOR_PAIR(client_state_color(client[i].state)));
@@ -227,30 +266,40 @@ void* interface(void*) {
         wattroff(buffer, COLOR_PAIR(kitchen_state_color(kitchen.state)));
 
         // draw dishwasher status
-        wattron(buffer, A_BOLD);
-        mvwprintw(buffer, kitchen_y + 3, right_x, "Dishwasher:");
-        wattroff(buffer, A_BOLD);
-        wattron(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher.state)));
-        mvwprintw(buffer, kitchen_y + 4, right_x, "State: %s", to_string(dishwasher.state));
-        wattroff(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher.state)));
+        // draw dishwasher statuses one below the other
+        int dishwasher_start_y = kitchen_y + 3;
+        for (int i = 0; i < DISHWASHER_NO; i++) {
+            int y_offset = dishwasher_start_y + i * 3;
+            wattron(buffer, A_BOLD);
+            mvwprintw(buffer, y_offset, right_x, "Dishwasher %d (%s):", i, i == 0 ? "forks" : "knives");
+            wattroff(buffer, A_BOLD);
+            wattron(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher[i].state)));
+            mvwprintw(buffer, y_offset + 1, right_x, "State: %s", to_string(dishwasher[i].state));
+            wattroff(buffer, COLOR_PAIR(dishwasher_state_color(dishwasher[i].state)));
+        }
 
 
-        // draw waiter status
-        wattron(buffer, A_BOLD);
-        mvwprintw(buffer, kitchen_y + 6, right_x, "Waiter %d:", waiter[0].id);
-        wattroff(buffer, A_BOLD);
-        int waiter_color = waiter[0].busy ? RED : GREEN;
-        wattron(buffer, COLOR_PAIR(waiter_color));
-        mvwprintw(buffer, kitchen_y + 7, right_x, "State: %s", waiter[0].busy ? "BUSY" : "AVAILABLE");
-        wattroff(buffer, COLOR_PAIR(waiter_color));
+        int waiter_start_y = kitchen_y + 9;
+        for (int i = 0; i < WAITER_NO; i++) {
+            int base_y = waiter_start_y + i * 3;
+
+            wattron(buffer, A_BOLD);
+            mvwprintw(buffer, base_y, right_x, "Waiter %d:", waiter[i].id);
+            wattroff(buffer, A_BOLD);
+
+            int waiter_color = waiter[i].busy ? RED : GREEN;
+            wattron(buffer, COLOR_PAIR(waiter_color));
+            mvwprintw(buffer, base_y + 1, right_x, "State: %s", waiter[i].busy ? "BUSY" : "AVAILABLE");
+            wattroff(buffer, COLOR_PAIR(waiter_color));
+        }
 
 
         // draw resources on left side below clients
         print_resources(buffer, start_x);
 
         // show simulation status and user controls at bottom center
-        print_centered(buffer, 35, "Simulation status: %s", is_paused ? "PAUSED" : "RUNNING");
-        print_centered(buffer, 36, "Press 'q' or 'Q' to quit, space to pause/resume");
+        print_centered(buffer, 40, "Simulation status: %s", is_paused ? "PAUSED" : "RUNNING");
+        print_centered(buffer, 41, "Press 'q' or 'Q' to quit, space to pause/resume");
 
         // copy buffer contents to stdscr and refresh screen
         wnoutrefresh(buffer);
@@ -271,10 +320,10 @@ const char* to_string(ClientState state) {
     switch (state) {
         case ClientState::THINKING: return "THINKING";
         case ClientState::HUNGRY: return "HUNGRY";
-        case ClientState::NONE_FORK: return "..";
-        case ClientState::LEFT_FORK: return "L.";
-        case ClientState::RIGHT_FORK: return ".R";
-        case ClientState::LEFT_RIGHT_FORK: return "LR";
+        case ClientState::NONE: return "..";
+        case ClientState::FORK: return "F.";
+        case ClientState::KNIFE: return ".K";
+        case ClientState::FORK_KNIFE: return "FK";
         case ClientState::EATING: return "EATING";
         case ClientState::FULL: return "FULL";
         case ClientState::WAITING: return "WAITING";
