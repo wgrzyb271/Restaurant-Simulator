@@ -468,6 +468,7 @@ void give_client_menu(Waiter* waiter, Client* client_served) {
                 pthread_cond_signal(&client_served->cond_menu);
                 pthread_mutex_unlock(&client_served->mutex);
                 pthread_mutex_unlock(&menu[m].mutex);
+                waiter->busy = false;
                 return;
             }
             pthread_mutex_unlock(&menu[m].mutex);
@@ -546,9 +547,10 @@ void init(){
 	// init structures
 
     // init resources
-    for(ItemType& item : menu) {
-        item.is_occupied = false;
-        item.state = CLEAN;
+    for(int i = 0; i < MENU; i++) {
+        menu[i].id = i;
+        menu[i].is_occupied = false;
+        menu[i].state = CLEAN;
 
     }
 
